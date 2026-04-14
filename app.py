@@ -5,7 +5,11 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # ---------------- CONFIG ----------------
-st.set_page_config(page_title="Evergreen Inventory", layout="wide")
+st.set_page_config(
+    page_title="Evergreen Inventory",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 # ---------------- GOOGLE SHEETS ----------------
 scope = [
@@ -17,7 +21,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", sco
 client = gspread.authorize(creds)
 
 spreadsheet = client.open("Inventory App Data")
-
 main_sheet = spreadsheet.worksheet("Transactions")
 user_sheet = spreadsheet.worksheet("Users")
 
@@ -48,7 +51,7 @@ if not st.session_state.logged_in:
     username = st.text_input("Username").strip()
     password = st.text_input("Password", type="password").strip()
 
-    if st.button("Login"):
+    if st.button("Login", use_container_width=True):
         if username in users and users[username]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
@@ -69,10 +72,10 @@ with col2:
 
 st.markdown(
     f"""
-    <h2 style='text-align: center; color: #2e7d32;'>
+    <h3 style='text-align: center; color: #2e7d32;'>
         🌿 Evergreen Irrigation
-    </h2>
-    <h5 style='text-align: center;'>Welcome, {st.session_state.username}</h5>
+    </h3>
+    <p style='text-align: center;'>Welcome, {st.session_state.username}</p>
     <hr>
     """,
     unsafe_allow_html=True
@@ -87,7 +90,7 @@ if st.session_state.role == "admin":
 else:
     menu = st.sidebar.radio(
         "📌 Navigation",
-        ["Production", "Dispatch", "Change Password"]
+        ["Dashboard", "Add Item", "Production", "Dispatch", "Change Password"]
     )
 
 # ---------------- LOAD DATA ----------------
@@ -130,7 +133,6 @@ if menu == "Dashboard":
 
         st.dataframe(summary, use_container_width=True)
 
-        # LOW STOCK ALERT
         low = summary[summary["Stock"] < 50]
         if not low.empty:
             st.error("⚠️ Low Stock")
@@ -143,11 +145,11 @@ elif menu == "Add Item":
     unit = st.text_input("Unit")
     qty = st.number_input("Opening Quantity", min_value=0)
 
-    if st.button("Add"):
+    if st.button("Add", use_container_width=True):
         if item == "":
             st.error("Enter item")
         elif item in item_unit_map:
-            st.warning("Item exists")
+            st.warning("Item already exists")
         else:
             main_sheet.append_row([
                 str(datetime.now()),
@@ -170,9 +172,9 @@ elif menu == "Production":
     unit = item_unit_map.get(item, "")
     st.info(f"Unit: {unit}")
 
-    qty = st.number_input("Qty", min_value=1)
+    qty = st.number_input("Quantity", min_value=1)
 
-    if st.button("Submit"):
+    if st.button("Submit", use_container_width=True):
         main_sheet.append_row([
             str(datetime.now()),
             st.session_state.username,
@@ -184,7 +186,7 @@ elif menu == "Production":
             "",
             ""
         ])
-        st.success("Done")
+        st.success("Production Added")
         st.rerun()
 
 # ---------------- DISPATCH ----------------
@@ -194,15 +196,15 @@ elif menu == "Dispatch":
     unit = item_unit_map.get(item, "")
     st.info(f"Unit: {unit}")
 
-    qty = st.number_input("Qty", min_value=1)
+    qty = st.number_input("Dispatch Quantity", min_value=1)
     start = st.text_input("Start Bill")
     end = st.text_input("End Bill")
-    vehicle = st.text_input("Vehicle")
+    vehicle = st.text_input("Vehicle Number")
 
     stock = df[df["Item"] == item]["Net"].sum()
-    st.info(f"Stock: {int(stock)}")
+    st.info(f"Available Stock: {int(stock)}")
 
-    if st.button("Dispatch"):
+    if st.button("Dispatch", use_container_width=True):
         if qty > stock:
             st.error("Not enough stock")
         else:
@@ -217,24 +219,23 @@ elif menu == "Dispatch":
                 end,
                 vehicle
             ])
-            st.success("Done")
+            st.success("Dispatch Done")
             st.rerun()
 
-# ---------------- REPORTS ----------------
+# ---------------- REPORTS (ADMIN ONLY) ----------------
 elif menu == "Reports":
 
-    st.subheader("📊 Reports")
+    if st.session_state.role != "admin":
+        st.error("Access denied")
+    else:
+        st.subheader("📊 Reports")
 
-    summary = df.groupby(["Item", "Unit"])["Net"].sum().reset_index()
-    st.dataframe(summary, use_container_width=True)
+        summary = df.groupby(["Item", "Unit"])["Net"].sum().reset_index()
+        st.dataframe(summary, use_container_width=True)
 
-    st.subheader("👤 User Activity")
-    user_report = df.groupby(["User", "Type"])["QTY"].sum().reset_index()
-    st.dataframe(user_report, use_container_width=True)
-
-    # DOWNLOAD BUTTON
-    csv = summary.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Report", csv, "report.csv")
+        st.subheader("👤 User Activity")
+        user_report = df.groupby(["User", "Type"])["QTY"].sum().reset_index()
+        st.dataframe(user_report, use_container_width=True)
 
 # ---------------- CHANGE PASSWORD ----------------
 elif menu == "Change Password":
@@ -244,7 +245,7 @@ elif menu == "Change Password":
     current = st.text_input("Current Password", type="password")
     new = st.text_input("New Password", type="password")
 
-    if st.button("Update"):
+    if st.button("Update Password", use_container_width=True):
 
         users_data = user_sheet.get_all_records()
 
