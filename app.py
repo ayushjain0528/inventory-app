@@ -4,6 +4,9 @@ from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Evergreen Inventory", layout="wide")
+
 # ---------------- GOOGLE SHEETS ----------------
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -13,16 +16,18 @@ scope = [
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
 
-main_sheet = client.open("Inventory App Data").worksheet("Transactions")
-user_sheet = client.open("Inventory App Data").worksheet("Users")
+spreadsheet = client.open("Inventory App Data")
+
+main_sheet = spreadsheet.worksheet("Transactions")
+user_sheet = spreadsheet.worksheet("Users")
 
 # ---------------- LOAD USERS ----------------
 def load_users():
     data = user_sheet.get_all_records()
     users = {}
     for row in data:
-        users[row["Username"]] = {
-            "password": row["Password"],
+        users[row["Username"].strip()] = {
+            "password": str(row["Password"]).strip(),
             "role": row["Role"]
         }
     return users
@@ -35,16 +40,15 @@ if "logged_in" not in st.session_state:
 
 users = load_users()
 
-# ---------------- LOGIN SCREEN ----------------
+# ---------------- LOGIN ----------------
 if not st.session_state.logged_in:
 
     st.title("🔐 Evergreen Irrigation Login")
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    username = st.text_input("Username").strip()
+    password = st.text_input("Password", type="password").strip()
 
     if st.button("Login"):
-
         if username in users and users[username]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
@@ -56,9 +60,7 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# ---------------- PAGE ----------------
-st.set_page_config(page_title="Inventory System", layout="wide")
-
+# ---------------- HEADER ----------------
 col1, col2 = st.columns([8, 2])
 with col2:
     if st.button("Logout"):
@@ -76,7 +78,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------------- ROLE BASED MENU ----------------
+# ---------------- MENU ----------------
 if st.session_state.role == "admin":
     menu = st.sidebar.radio(
         "📌 Navigation",
@@ -101,7 +103,7 @@ if not df.empty:
         axis=1
     )
 
-# ---------------- ITEM → UNIT MAP ----------------
+# ---------------- ITEM → UNIT ----------------
 item_unit_map = {}
 
 if not df.empty:
@@ -109,7 +111,6 @@ if not df.empty:
         if row["Item"] not in item_unit_map and str(row["Unit"]).strip() != "":
             item_unit_map[row["Item"]] = row["Unit"]
 
-# Fill missing units
 if not df.empty:
     df["Unit"] = df.apply(
         lambda x: item_unit_map.get(x["Item"], "") if str(x["Unit"]).strip() == "" else x["Unit"],
@@ -129,6 +130,12 @@ if menu == "Dashboard":
 
         st.dataframe(summary, use_container_width=True)
 
+        # LOW STOCK ALERT
+        low = summary[summary["Stock"] < 50]
+        if not low.empty:
+            st.error("⚠️ Low Stock")
+            st.dataframe(low)
+
 # ---------------- ADD ITEM ----------------
 elif menu == "Add Item":
 
@@ -140,7 +147,7 @@ elif menu == "Add Item":
         if item == "":
             st.error("Enter item")
         elif item in item_unit_map:
-            st.warning("Item already exists")
+            st.warning("Item exists")
         else:
             main_sheet.append_row([
                 str(datetime.now()),
@@ -225,6 +232,10 @@ elif menu == "Reports":
     user_report = df.groupby(["User", "Type"])["QTY"].sum().reset_index()
     st.dataframe(user_report, use_container_width=True)
 
+    # DOWNLOAD BUTTON
+    csv = summary.to_csv(index=False).encode("utf-8")
+    st.download_button("Download Report", csv, "report.csv")
+
 # ---------------- CHANGE PASSWORD ----------------
 elif menu == "Change Password":
 
@@ -238,11 +249,11 @@ elif menu == "Change Password":
         users_data = user_sheet.get_all_records()
 
         for i, row in enumerate(users_data):
-            if row["Username"] == st.session_state.username:
+            if row["Username"].strip() == st.session_state.username:
 
-                if row["Password"] != current:
+                if str(row["Password"]).strip() != current:
                     st.error("Wrong password")
                 else:
                     user_sheet.update_cell(i+2, 2, new)
-                    st.success("Password updated permanently")
+                    st.success("Password updated")
                     st.rerun()
