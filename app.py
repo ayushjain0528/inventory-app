@@ -73,7 +73,7 @@ with col2:
 st.markdown(
     f"""
     <h3 style='text-align: center; color: #2e7d32;'>
-        🌿 Evergreen Irrigation
+         Evergreen Irrigation
     </h3>
     <p style='text-align: center;'>Welcome, {st.session_state.username}</p>
     <hr>
