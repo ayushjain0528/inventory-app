@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import time
 
 # ---------------- CONFIG ----------------
 st.set_page_config(
@@ -24,7 +25,22 @@ spreadsheet = client.open("Inventory App Data")
 main_sheet = spreadsheet.worksheet("Transactions")
 user_sheet = spreadsheet.worksheet("Users")
 
-# ---------------- LOAD USERS ----------------
+# ---------------- SAFE APPEND (RETRY) ----------------
+def safe_append(sheet, row):
+    for _ in range(3):
+        try:
+            sheet.append_row(row)
+            return True
+        except Exception as e:
+            time.sleep(2)
+    return False
+
+# ---------------- CACHED LOAD DATA ----------------
+@st.cache_data(ttl=30)
+def load_data():
+    return main_sheet.get_all_records()
+
+@st.cache_data(ttl=60)
 def load_users():
     data = user_sheet.get_all_records()
     users = {}
@@ -94,7 +110,7 @@ else:
     )
 
 # ---------------- LOAD DATA ----------------
-data = main_sheet.get_all_records()
+data = load_data()
 df = pd.DataFrame(data)
 
 # ---------------- PROCESS ----------------
@@ -151,7 +167,7 @@ elif menu == "Add Item":
         elif item in item_unit_map:
             st.warning("Item already exists")
         else:
-            main_sheet.append_row([
+            success = safe_append(main_sheet, [
                 str(datetime.now()),
                 st.session_state.username,
                 item,
@@ -162,8 +178,13 @@ elif menu == "Add Item":
                 "",
                 ""
             ])
-            st.success("Added")
-            st.rerun()
+
+            if success:
+                load_data.clear()
+                st.success("Added")
+                st.rerun()
+            else:
+                st.error("Failed to add item. Try again.")
 
 # ---------------- PRODUCTION ----------------
 elif menu == "Production":
@@ -175,7 +196,7 @@ elif menu == "Production":
     qty = st.number_input("Quantity", min_value=1)
 
     if st.button("Submit", use_container_width=True):
-        main_sheet.append_row([
+        success = safe_append(main_sheet, [
             str(datetime.now()),
             st.session_state.username,
             item,
@@ -186,8 +207,13 @@ elif menu == "Production":
             "",
             ""
         ])
-        st.success("Production Added")
-        st.rerun()
+
+        if success:
+            load_data.clear()
+            st.success("Production Added")
+            st.rerun()
+        else:
+            st.error("Failed to add production.")
 
 # ---------------- DISPATCH ----------------
 elif menu == "Dispatch":
@@ -208,7 +234,7 @@ elif menu == "Dispatch":
         if qty > stock:
             st.error("Not enough stock")
         else:
-            main_sheet.append_row([
+            success = safe_append(main_sheet, [
                 str(datetime.now()),
                 st.session_state.username,
                 item,
@@ -219,10 +245,15 @@ elif menu == "Dispatch":
                 end,
                 vehicle
             ])
-            st.success("Dispatch Done")
-            st.rerun()
 
-# ---------------- REPORTS (ADMIN ONLY) ----------------
+            if success:
+                load_data.clear()
+                st.success("Dispatch Done")
+                st.rerun()
+            else:
+                st.error("Dispatch failed.")
+
+# ---------------- REPORTS ----------------
 elif menu == "Reports":
 
     if st.session_state.role != "admin":
