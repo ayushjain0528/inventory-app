@@ -126,6 +126,28 @@ def load_data():
             "QTY", "Unit", "Start Bill", "End Bill", "Vehicle"
         ])
     df = pd.DataFrame(records)
+
+    # Normalise column names: strip whitespace, fix common casing issues
+    df.columns = [c.strip() for c in df.columns]
+    # Map any alternate header spellings to expected names
+    col_aliases = {
+        "timestamp": "Timestamp", "time stamp": "Timestamp",
+        "username": "Username", "user name": "Username", "user": "Username",
+        "item": "Item", "item name": "Item",
+        "type": "Type",
+        "qty": "QTY", "quantity": "QTY",
+        "unit": "Unit",
+        "start bill": "Start Bill", "startbill": "Start Bill",
+        "end bill": "End Bill", "endbill": "End Bill",
+        "vehicle": "Vehicle", "vehicle no": "Vehicle", "vehicle no.": "Vehicle",
+    }
+    df.rename(columns={c: col_aliases[c.lower()] for c in df.columns if c.lower() in col_aliases}, inplace=True)
+
+    # Ensure essential columns exist
+    for col in ["Timestamp", "Username", "Item", "Type", "QTY", "Unit", "Start Bill", "End Bill", "Vehicle"]:
+        if col not in df.columns:
+            df[col] = ""
+
     df["QTY"] = pd.to_numeric(df["QTY"], errors="coerce").fillna(0)
     df["Net"] = df.apply(
         lambda r: r["QTY"] if r["Type"] in ("OPENING", "PRODUCTION", "PURCHASE") else -r["QTY"],
@@ -524,7 +546,8 @@ with tabs[3]:
             hist["_d"] = pd.to_datetime(hist["Timestamp"], errors="coerce").dt.date
             hist = hist[(hist["_d"] >= h_dates[0]) & (hist["_d"] <= h_dates[1])]
 
-        hist = hist.sort_values("Timestamp", ascending=False).head(300)
+        ts_col = "Timestamp" if "Timestamp" in hist.columns else hist.columns[0]
+        hist = hist.sort_values(ts_col, ascending=False).head(300)
 
         # Render as clean rows
         for _, r in hist.iterrows():
