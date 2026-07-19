@@ -1,83 +1,55 @@
 """
-Evergreen Irrigation — Stock Viewer (VIEW ONLY)
-================================================
-Salesperson sees: Category, Brand, Item, Spec (MTR), Unit, Available Qty.
-No entry. No prices. Nothing can be changed from the app.
+Evergreen Irrigation — Stock Viewer (VIEW ONLY, no credentials needed)
+======================================================================
+Reads the link-shared stock Google Sheet directly. No service account,
+no private key, no gspread — nothing to go wrong.
 
-Data source: the 'Transactions' tab of the stock Google Sheet, which holds the
-daily stock layout:
-    A=Category  B=Brand  C=Item  D=MTR/Spec  E=Unit  F=Price  G=Current Stock
-    H=Amount    I onward = daily Opening/Shift A/Shift B/out/closing blocks
-The app reads ONLY columns A-E and G, rows 3 onward. F (price) and H (amount)
-are never read, so the salesperson can never see them.
+Requirement: the Google Sheet must be shared as "Anyone with the link: Viewer"
+(it already is).
 
-One-time setup:
-1. Streamlit Cloud -> App -> Settings -> Secrets, paste:
+Streamlit Secrets needed (keep only this, the gcp_service_account part
+can stay or be deleted, it is not used anymore):
 
-       [gcp_service_account]
-       type = "service_account"
-       project_id = "..."
-       private_key_id = "..."
-       private_key = "..."
-       client_email = "..."
-       client_id = "..."
-       token_uri = "https://oauth2.googleapis.com/token"
+    [sheet]
+    spreadsheet_id = "1x6JEBx1RdhR2ONLAOnHjswK0-dTD5wIHdnvntMiBCEQ"
+    gid = "0"
 
-       [sheet]
-       spreadsheet_id = "1x6JEBx1RdhR2ONLAOnHjswK0-dTD5wIHdnvntMiBCEQ"
-       tab_name = "Transactions"
-
-2. Share the Google Sheet with the service account email (Viewer is enough).
-3. Remove credentials.json from the GitHub repo (secrets stay in Streamlit only)
-   and rotate the old key in Google Cloud Console since it was public.
+Sheet layout (Transactions tab):
+    A=Category B=Brand C=Item D=MTR/Spec E=Unit F=Price G=Current Stock ...
+Rows 1-2 are headers; data starts at row 3.
+The app shows ONLY columns A-E and G. Price and Amount are never displayed.
 """
 
 import pandas as pd
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Evergreen Stock", page_icon="🌱", layout="wide")
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-FIRST_DATA_ROW = 3  # rows 1-2 are headers in the stock layout
+FIRST_DATA_ROW = 3  # sheet row where items start (rows 1-2 are headers)
 
 
 @st.cache_data(ttl=60, show_spinner="Loading stock…")
 def load_stock() -> pd.DataFrame:
-    info = dict(st.secrets["gcp_service_account"])
-    # Fix the private key no matter how it was pasted into Secrets:
-    # handles literal \n text, real line breaks, stray spaces/quotes.
-    key = info.get("private_key", "").strip().strip('"').strip("'")
-    key = key.replace("\\n", "\n").strip()
-    if not key.endswith("\n"):
-        key += "\n"
-    info["private_key"] = key
-    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    gc = gspread.authorize(creds)
-    sh = gc.open_by_key(st.secrets["sheet"]["spreadsheet_id"])
-    ws = sh.worksheet(st.secrets["sheet"].get("tab_name", "Transactions"))
-
-    # Read only what the salesperson may see: A-E (identity) and G (qty).
-    identity = ws.get(f"A{FIRST_DATA_ROW}:E1000")
-    qty = ws.get(f"G{FIRST_DATA_ROW}:G1000")
+    sid = st.secrets["sheet"]["spreadsheet_id"]
+    gid = str(st.secrets["sheet"].get("gid", "0"))
+    url = f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+    raw = pd.read_csv(url, header=None, dtype=str)
 
     rows = []
-    for i, rec in enumerate(identity):
-        rec = (rec + [""] * 5)[:5]
-        cat, brand, item, mtr, unit = (v.strip() for v in rec)
+    for _, r in raw.iloc[FIRST_DATA_ROW - 1 :].iterrows():
+        get = lambda i: (r[i] if i in r and pd.notna(r[i]) else "").strip()
+        item = get(2)
         if not item:  # stop at first row without an item name
             break
-        q_raw = qty[i][0] if i < len(qty) and qty[i] else "0"
-        q = pd.to_numeric(q_raw.replace(",", ""), errors="coerce")
+        qty = pd.to_numeric(get(6).replace(",", ""), errors="coerce")
         rows.append(
             {
-                "Category": cat,
-                "Brand": brand,
+                "Category": get(0),
+                "Brand": get(1),
                 "Item": item,
-                "Spec": mtr,
-                "Unit": unit,
-                "Available Qty": 0 if pd.isna(q) else q,
+                "Spec": get(3),
+                "Unit": get(4),
+                "Available Qty": 0 if pd.isna(qty) else qty,
             }
         )
     return pd.DataFrame(rows)
