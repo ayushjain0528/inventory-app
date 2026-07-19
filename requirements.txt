@@ -2,4 +2,3 @@ streamlit
 gspread
 google-auth
 pandas
-openpyxl
