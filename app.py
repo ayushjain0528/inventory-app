@@ -45,9 +45,15 @@ FIRST_DATA_ROW = 3  # rows 1-2 are headers in the stock layout
 
 @st.cache_data(ttl=60, show_spinner="Loading stock…")
 def load_stock() -> pd.DataFrame:
-    creds = Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"]), scopes=SCOPES
-    )
+    info = dict(st.secrets["gcp_service_account"])
+    # Fix the private key no matter how it was pasted into Secrets:
+    # handles literal \n text, real line breaks, stray spaces/quotes.
+    key = info.get("private_key", "").strip().strip('"').strip("'")
+    key = key.replace("\\n", "\n").strip()
+    if not key.endswith("\n"):
+        key += "\n"
+    info["private_key"] = key
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(st.secrets["sheet"]["spreadsheet_id"])
     ws = sh.worksheet(st.secrets["sheet"].get("tab_name", "Transactions"))
